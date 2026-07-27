@@ -96,6 +96,9 @@ sql/
   04-channel-shift.sql     growth measured as share, not as raw month-over-month
 notebooks/
   01-analysis.ipynb        the same analysis with charts and the significance tests
+dashboard/
+  views.sql                star-schema views the report reads — not the raw tables
+  README.md                the Power BI build spec: model, measures, both pages
 ```
 
 Each SQL file runs standalone and prints its own results:
@@ -107,13 +110,15 @@ psql -d portfolio -f sql/02-decline-drivers.sql
 ## Reproducing it
 
 ```bash
-cp .env.example .env          # then fill in PGPASSWORD
-python setup/load_data.py     # builds the database from data/raw/
-python setup/profile_data.py  # the data-quality scan
+cp .env.example .env                                  # then fill in PGPASSWORD
+python setup/load_data.py                             # builds the database from data/raw/
+python setup/profile_data.py                          # the data-quality scan
+psql -d portfolio -f uzcard-payments-analysis/dashboard/views.sql   # dashboard model
 ```
 
-Both scripts live at the repo root and cover all four portfolio projects — this one
-occupies the `uzcard` schema.
+The first two scripts live at the repo root and cover all four portfolio projects — this
+one occupies the `uzcard` schema. `views.sql` ends with smoke tests that assert the
+dashboard model still reproduces the numbers in this README.
 
 ---
 
