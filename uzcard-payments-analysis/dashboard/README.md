@@ -26,6 +26,16 @@ quoting something the analysis never said — fix that before building visuals.
 Choose **Import**, not DirectQuery: the fact is 60,320 rows, which imports in seconds and
 makes every interaction instant.
 
+The server runs PostgreSQL 18.4 with `scram-sha-256` authentication. Power BI's built-in
+connector handles that through its bundled Npgsql driver, but only on reasonably current
+builds — a release older than about 2021 fails with
+`The authentication method 10 is not supported`. Two fallbacks if that happens:
+
+- install a current Power BI Desktop (the Microsoft Store build keeps itself updated), or
+- connect through **ODBC** instead, using the `psqlODBC` driver already installed on this
+  machine, with the DSN-less string
+  `Driver={PostgreSQL Unicode};Server=localhost;Port=5433;Database=portfolio;`
+
 Select these six views only:
 
 ```
