@@ -1,0 +1,27 @@
+# Raw data — not versioned. See each project's data/README.md for how to obtain it.
+# The leading **/ matters: a pattern containing a slash is anchored to this file's
+# directory, so plain "data/raw/*.csv" would only match at the repo root.
+**/data/raw/*.csv
+**/data/raw/*.xlsx
+
+# Database credentials — never committed. Each project ships a .env.example instead.
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Jupyter
+*.nbconvert.ipynb
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
