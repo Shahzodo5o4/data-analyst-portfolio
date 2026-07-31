@@ -1,0 +1,19 @@
+# Everything the notebooks and the setup/ scripts need.
+#     python -m venv .venv && .venv\Scripts\activate
+#     pip install -r requirements.txt
+#
+# Pinned to a minimum rather than an exact version: these are stable, widely
+# available libraries and a recruiter cloning this should not have to fight a
+# resolver to run one notebook.
+
+pandas>=2.2
+numpy>=1.26
+matplotlib>=3.8
+scipy>=1.11
+
+# PostgreSQL driver. The -binary build ships its own libpq, so there is no
+# system dependency to install first.
+psycopg2-binary>=2.9
+
+# Only needed to run the notebooks; the .py scripts in setup/ are plain CPython.
+jupyterlab>=4.0
