@@ -129,6 +129,22 @@ spent its colour budget on decoration.
 Turn off: visual borders, shadows, the vertical gridlines, and data labels on every
 point (label the endpoints only).
 
+### Applying it
+
+All of the above is already encoded in [`theme.json`](theme.json). Load it once, before
+placing any visual: **View → Themes → Browse for themes →** `dashboard/theme.json`.
+
+It sets the eight palette colours, the type ramp (Segoe UI, 32pt KPI values / 13pt titles
+/ 10pt labels), the `#fcfcfb` canvas, horizontal-only gridlines in `#e1e0d9`, and it turns
+off borders, shadows, visual headers, legends and data labels globally. Applying it means
+the only formatting left to do by hand is the *per-visual* work the theme cannot know
+about: the conditional `#d03b3b` rules, the constant line, and the endpoint labels on the
+channel chart. The globally-off legend is deliberate and wants no exception — the channel
+lines are direct-labelled instead.
+
+Setting `"good"`/`"bad"` in the theme also drives the table's data bars and any
+conditional-formatting default, so those pick up the right red without extra clicking.
+
 ---
 
 ## Page 1 — Overview
@@ -154,8 +170,11 @@ a fake trend indicator would be a lie.
 
 Bar chart. Axis `dim_card[card_profile]`, value `[Decline rate]`.
 Conditional formatting on the bars: `#d03b3b` when `card_profile = "student · virtual"`,
-otherwise `#c9c8c2`. Add a constant line at the book average (5.83%) in Secondary ink,
-dashed, labelled.
+otherwise `#c9c8c2`. Add a constant line at the book average in Secondary ink, dashed,
+labelled — set its value with `fx` bound to `[Decline rate (book)]` (6.10%) rather than
+typing a number, so it cannot drift from the model. Note this is the *book* rate, not the
+5.83% non-student rate quoted in the README; the two answer different questions and
+mixing them up mislabels the line.
 
 Title: **"One card product carries the whole decline gap"**
 Subtitle: "Students on any other card decline at the book average."
