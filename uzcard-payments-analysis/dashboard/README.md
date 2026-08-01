@@ -221,10 +221,17 @@ Two clustered bar charts of equal size.
 Axis `dim_merchant[mcc_high_risk]`, value `[Dispute rate]`.
 
 **Right — "The bank's own label runs backwards"**
-Axis `dim_merchant[bank_risk_tier]` (sorted low → medium → high), value `[Dispute rate]`,
-with `dim_merchant[mcc_high_risk] = TRUE` as a visual-level filter. Bars descend left to
-right — that descent *is* the finding, so leave the sort as low/medium/high rather than
-letting Power BI sort by value.
+Axis `dim_merchant[bank_risk_tier]`, value `[Dispute rate]`, with
+`dim_merchant[mcc_high_risk] = TRUE` as a visual-level filter. Bars descend left to
+right — that descent *is* the finding, so the axis must read low → medium → high.
+
+Two clicks are needed for that, because neither default gives it. Sorting by value is
+circular (it would order the bars by the very thing being claimed), and sorting by the
+label is alphabetical, which yields high / low / medium. Instead select
+`dim_merchant[bank_risk_tier]` in the Data pane and set **Column tools → Sort by column
+→ `bank_risk_tier_order`**, then sort the visual by `bank_risk_tier` ascending. The
+ordinal rank ships from `views.sql` so the order is a property of the data, not of one
+report that could be rebuilt without it.
 
 Add a text box beneath the right chart, 9pt Secondary ink:
 

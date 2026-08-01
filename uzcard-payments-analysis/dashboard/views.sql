@@ -97,6 +97,12 @@ SELECT
     m.merchant_name,
     m.region                                  AS merchant_region,
     m.risk_tier                               AS bank_risk_tier,
+    -- low/medium/high is an ordinal scale, but every BI tool sorts text
+    -- alphabetically and would render it high, low, medium. The page 2 chart is
+    -- read as a descent from low to high, so the order carries the finding and
+    -- has to travel with the data rather than be re-created in the report.
+    CASE m.risk_tier WHEN 'low' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
+                                              AS bank_risk_tier_order,
     mc.mcc_code,
     mc.category_name,
     mc.category_group,
@@ -172,3 +178,20 @@ GROUP BY dc.card_profile
 ORDER BY decline_pct DESC;
 -- expected: student · virtual 20.23 | non-student · virtual 5.86
 --           non-student · other 5.83 | student · other 5.69
+
+-- The page 2 headline: sorted by bank_risk_tier_order the dispute rate must
+-- descend. If it ever climbs, either the label started working or the sort
+-- column is wrong — both change what the chart is allowed to claim.
+SELECT
+    dm.bank_risk_tier,
+    dm.bank_risk_tier_order,
+    count(*) FILTER (WHERE f.is_approved = 1)                       AS approved,
+    sum(f.is_disputed)                                              AS disputes,
+    round(100.0 * sum(f.is_disputed)
+          / nullif(count(*) FILTER (WHERE f.is_approved = 1), 0), 3) AS dispute_pct
+FROM uzcard.fact_transactions f
+JOIN uzcard.dim_merchant dm ON dm.merchant_id = f.merchant_id
+WHERE dm.mcc_high_risk
+GROUP BY dm.bank_risk_tier, dm.bank_risk_tier_order
+ORDER BY dm.bank_risk_tier_order;
+-- expected, in this order: low 6.498 | medium 3.607 | high 1.526
