@@ -25,3 +25,6 @@ desktop.ini
 # Editors
 .vscode/
 .idea/
+
+# Local agent/tool settings — machine-specific, not part of the project
+.claude/

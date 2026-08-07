@@ -17,7 +17,8 @@
 -- ============================================================================
 
 DROP VIEW IF EXISTS uzcard.fact_transactions, uzcard.dim_date, uzcard.dim_customer,
-                    uzcard.dim_card, uzcard.dim_merchant, uzcard.dim_terminal CASCADE;
+                    uzcard.dim_card, uzcard.dim_merchant, uzcard.dim_terminal,
+                    uzcard.dim_hour, uzcard.rule_scorecard CASCADE;
 
 
 -- ---------------------------------------------------------------- dimensions
@@ -108,9 +109,25 @@ SELECT
     mc.category_group,
     mc.is_high_risk                           AS mcc_high_risk,
     -- the sharper target from the analysis: two categories, not the whole flag
-    mc.category_name IN ('Betting', 'Online Gaming') AS is_priority_category
+    mc.category_name IN ('Betting', 'Online Gaming') AS is_priority_category,
+    -- the same split with a label instead of a boolean, so the page 3 matrix reads
+    -- as words rather than as True / False
+    CASE WHEN mc.category_name IN ('Betting', 'Online Gaming')
+         THEN 'Betting / Online Gaming' ELSE 'every other category' END AS category_set
 FROM uzcard.merchants m
 JOIN uzcard.mcc_categories mc ON mc.mcc_code = m.mcc_code;
+
+
+-- 24 rows. The hour is a dimension and not a column on the fact for the same
+-- reason the date is: it needs a label, a sort order and a grouping, and a report
+-- that rebuilds "is this the night window?" in DAX can get it wrong once per visual.
+CREATE VIEW uzcard.dim_hour AS
+SELECT
+    h                                         AS hour_of_day,
+    to_char(make_time(h::int, 0, 0), 'HH24:00') AS hour_label,
+    h < 5                                     AS is_night_window,
+    CASE WHEN h < 5 THEN '00:00-04:59' ELSE '05:00-23:59' END AS time_band
+FROM generate_series(0, 23) AS h;
 
 
 CREATE VIEW uzcard.dim_terminal AS
@@ -147,11 +164,82 @@ SELECT
     (t.txn_status = 'declined')::int          AS is_declined,
     (t.txn_status = 'reversed')::int          AS is_reversed,
     t.is_disputed::int                        AS is_disputed,
+    extract(hour FROM t.txn_ts)::int          AS hour_of_day,
     CASE WHEN t.txn_status = 'approved' THEN t.amount_uzs ELSE 0 END AS approved_amount_uzs,
+    -- the money side of a dispute: exposure, not realised loss (see README method notes)
+    CASE WHEN t.is_disputed THEN t.amount_uzs ELSE 0 END AS disputed_amount_uzs,
     -- funding vs everything else: the split the decline analysis turns on
-    (t.decline_reason IN ('insufficient_funds', 'limit'))::int AS is_funding_decline
+    (t.decline_reason IN ('insufficient_funds', 'limit'))::int AS is_funding_decline,
+    -- The step-up rule, as one pre-computed flag. It spans three dimensions
+    -- (channel, merchant category, hour), so leaving it to the report would mean
+    -- re-deriving a three-way condition in every visual that mentions the rule.
+    -- Scored on approved transactions only, exactly as the analysis scores it: a
+    -- declined payment never settles and so can never turn into a dispute.
+    (t.txn_status = 'approved'
+     AND te.channel = 'ECOM'
+     AND mc.category_name IN ('Betting', 'Online Gaming')
+     AND extract(hour FROM t.txn_ts) < 5)::int AS is_rule_d
 FROM uzcard.transactions t
-JOIN uzcard.cards c ON c.card_id = t.card_id;
+JOIN uzcard.cards c            ON c.card_id = t.card_id
+JOIN uzcard.terminals te       ON te.terminal_id = t.terminal_id
+JOIN uzcard.merchants m        ON m.merchant_id = t.merchant_id
+JOIN uzcard.mcc_categories mc  ON mc.mcc_code = m.mcc_code;
+
+
+-- ----------------------------------------------------------- rule scorecard
+-- Four candidate step-up rules, already scored. This is an aggregate summary, not
+-- a fact table: it loads into the model as a DISCONNECTED table with no
+-- relationship, because its grain is "one row per rule" and nothing else in the
+-- model shares that grain. Precomputing it here is what stops the report from
+-- quoting a precision figure the analysis never produced.
+CREATE VIEW uzcard.rule_scorecard AS
+WITH base AS (
+    SELECT
+        t.amount_uzs,
+        t.is_disputed,
+        te.channel = 'ECOM'                                      AS is_cnp,
+        mc.is_high_risk                                          AS mcc_flag,
+        mc.category_name IN ('Betting', 'Online Gaming')         AS target_cat,
+        extract(hour FROM t.txn_ts) < 5                          AS is_night
+    FROM uzcard.transactions t
+    JOIN uzcard.terminals te      ON te.terminal_id = t.terminal_id
+    JOIN uzcard.merchants m       ON m.merchant_id = t.merchant_id
+    JOIN uzcard.mcc_categories mc ON mc.mcc_code = m.mcc_code
+    WHERE t.txn_status = 'approved'
+),
+observed_days AS (
+    SELECT count(DISTINCT date_trunc('day', txn_ts)) AS days FROM uzcard.transactions
+),
+rules AS (
+    SELECT * FROM (VALUES
+        (1, 'A  card-not-present'),
+        (2, 'B  A + high-risk MCC flag'),
+        (3, 'C  A + Betting / Online Gaming'),
+        (4, 'D  C + 00:00-04:59')
+    ) AS r(rule_order, rule)
+),
+fired AS (
+    SELECT r.rule_order, r.rule, b.is_disputed, b.amount_uzs,
+           CASE r.rule_order
+               WHEN 1 THEN b.is_cnp
+               WHEN 2 THEN b.is_cnp AND b.mcc_flag
+               WHEN 3 THEN b.is_cnp AND b.target_cat
+               WHEN 4 THEN b.is_cnp AND b.target_cat AND b.is_night
+           END AS fires
+    FROM base b CROSS JOIN rules r
+)
+SELECT
+    f.rule_order,
+    f.rule,
+    count(*) FILTER (WHERE f.fires)                              AS flagged,
+    round(count(*) FILTER (WHERE f.fires)::numeric / d.days, 1)  AS prompts_per_day,
+    round(100.0 * count(*) FILTER (WHERE f.fires AND f.is_disputed)
+          / count(*) FILTER (WHERE f.is_disputed), 1)            AS coverage_pct,
+    round(100.0 * count(*) FILTER (WHERE f.fires AND f.is_disputed)
+          / nullif(count(*) FILTER (WHERE f.fires), 0), 1)       AS precision_pct,
+    sum(f.amount_uzs) FILTER (WHERE f.fires AND f.is_disputed)   AS uzs_protected
+FROM fired f CROSS JOIN observed_days d
+GROUP BY f.rule_order, f.rule, d.days;
 
 
 -- ---------------------------------------------------------------- smoke tests
@@ -195,3 +283,43 @@ WHERE dm.mcc_high_risk
 GROUP BY dm.bank_risk_tier, dm.bank_risk_tier_order
 ORDER BY dm.bank_risk_tier_order;
 -- expected, in this order: low 6.498 | medium 3.607 | high 1.526
+
+-- The page 3 headline: the interaction. Neither condition does this on its own,
+-- so all four cells have to be present for the visual to be honest.
+SELECT
+    CASE WHEN dm.is_priority_category THEN 'Betting / Online Gaming'
+         ELSE 'every other category' END                             AS category_set,
+    dh.time_band,
+    count(*) FILTER (WHERE f.is_approved = 1)                        AS approved,
+    sum(f.is_disputed)                                               AS disputes,
+    round(100.0 * sum(f.is_disputed)
+          / nullif(count(*) FILTER (WHERE f.is_approved = 1), 0), 3) AS dispute_pct
+FROM uzcard.fact_transactions f
+JOIN uzcard.dim_merchant dm ON dm.merchant_id = f.merchant_id
+JOIN uzcard.dim_hour dh     ON dh.hour_of_day = f.hour_of_day
+GROUP BY 1, 2
+ORDER BY 1, 2;
+-- expected: Betting/Online Gaming  00:00-04:59  46.921 | 05:00-23:59  0.164
+--           every other category   00:00-04:59   0.000 | 05:00-23:59  0.071
+
+-- The rule the report recommends, straight from the fact flag. If the flag and the
+-- scorecard ever disagree, one of the two was edited without the other.
+SELECT
+    sum(f.is_rule_d)                                                 AS flagged,
+    round(sum(f.is_rule_d)::numeric
+          / (SELECT count(DISTINCT date_key) FROM uzcard.fact_transactions), 1)
+                                                                     AS prompts_per_day,
+    sum(f.is_disputed) FILTER (WHERE f.is_rule_d = 1)                AS disputes_caught,
+    round(100.0 * sum(f.is_disputed) FILTER (WHERE f.is_rule_d = 1)
+          / nullif(sum(f.is_rule_d), 0), 1)                          AS precision_pct,
+    to_char(sum(f.disputed_amount_uzs) FILTER (WHERE f.is_rule_d = 1),
+            '999,999,999')                                           AS uzs_protected
+FROM uzcard.fact_transactions f;
+-- expected: 341 · 1.0 · 160 · 46.9% · 102,283,700
+
+SELECT rule, flagged, prompts_per_day, coverage_pct, precision_pct,
+       to_char(uzs_protected, '999,999,999') AS uzs_protected
+FROM uzcard.rule_scorecard
+ORDER BY rule_order;
+-- expected: A 13,502 · 40.2 · 84.4 · 1.2   | B 952 · 2.8 · 80.9 · 16.9
+--           C    952 ·  2.8 · 80.9 · 16.9  | D 341 · 1.0 · 80.4 · 46.9
