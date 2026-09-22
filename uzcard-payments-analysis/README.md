@@ -8,6 +8,8 @@ merchants over 2023.** PostgreSQL · Python · Power BI
 <sub>Page 1 of three. The full report is [`dashboard/uzcard-payments.pbix`](dashboard/uzcard-payments.pbix);
 the spec it was built from is [`dashboard/README.md`](dashboard/README.md).</sub>
 
+**Interactive web version:** [`dashboard/web/index.html`](dashboard/web/index.html) — the three report pages with working filters, rebuilt from the raw fact data.
+
 ---
 
 ## The answer first

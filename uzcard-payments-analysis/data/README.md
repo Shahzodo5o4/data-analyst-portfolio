@@ -4,6 +4,16 @@ The CSV extracts are **not committed** — they are course-issued data and would
 several megabytes of unreviewable binary-ish content to every clone. `.gitignore` blocks
 `**/data/raw/*.csv`.
 
+**One exception, stated so the rule is not quietly broken.**
+[`../dashboard/web/index.html`](../dashboard/web/index.html) is a self-contained build of
+the report and carries the transaction table inside it — all 60,320 rows, encoded as
+index arrays rather than CSV, plus the 600 merchant names. It has to: the page filters
+client-side with no server behind it, and at the grain the three pages slice on a
+pre-aggregated cube still comes to 36,155 cells, so aggregating buys little. The data is
+generated, not production traffic, so nothing here is disclosed that the course did not
+already hand out — but a reader who takes the line above literally would be surprised, so
+it is written down.
+
 ## What belongs here
 
 Drop these six files into `data/raw/`:
